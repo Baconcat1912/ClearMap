@@ -4,3 +4,4 @@ pyvis==0.3.2
 fastapi
 uvicorn
 requests
+together==1.5.16
