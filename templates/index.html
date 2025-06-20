@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ClearMap AI Chat</title>
   <style>
     body {
@@ -170,23 +171,26 @@
     body.dark .content-page {
       color: #eee;
     }
+
+    .setting-option {
+      margin: 10px 0;
+    }
   </style>
 </head>
 <body>
 
-  <button class="toggle-theme" onclick="toggleTheme()">Toggle Theme</button>
   <h1>ClearMap</h1>
 
   <div class="tabs">
-    <div class="tab active" onclick="switchTab('chatTab')">Chat</div>
-    <div class="tab" onclick="switchTab('settingsTab')">Settings</div>
-    <div class="tab" onclick="switchTab('helpTab')">Help</div>
+    <div class="tab active" onclick="switchTab('chatTab', this)">Chat</div>
+    <div class="tab" onclick="switchTab('settingsTab', this)">Settings</div>
+    <div class="tab" onclick="switchTab('helpTab', this)">Help</div>
   </div>
 
   <div id="chatTab" class="tab-content active">
     <div class="chat-history" id="chatHistory"></div>
     <div class="input-group">
-      <label for="chatInput"></label><input id="chatInput" type="text" placeholder="Ask me anything...">
+      <label for="chatInput"></label><input id="chatInput" type="text" placeholder="Ask me anything..." />
       <button onclick="sendMessage()">Send</button>
     </div>
   </div>
@@ -194,7 +198,13 @@
   <div id="settingsTab" class="tab-content">
     <div class="content-page">
       <h2>Settings</h2>
-      <p>Theme toggle is available. More settings coming soon.</p>
+      <div class="setting-option">
+        <label>
+          <input type="checkbox" id="darkToggle" onchange="toggleTheme()" />
+          Enable Dark Mode
+        </label>
+      </div>
+      <p>More settings coming soon.</p>
     </div>
   </div>
 
@@ -213,14 +223,32 @@
       loadTheme();
     });
 
-    function formatResponseText(text) {
-  // Handle <think> tags only if they contain content
-  return text.replace(/<think>(.*?)<\/think>/gi, (_, inner) => {
-    if (!inner.trim()) return ''; // Remove empty think tags
-    return `<span class="thinking">[Thinking: ${inner.trim()}]</span>`;
-  });
-}
+    function switchTab(tabId, tabElement) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
 
+      tabElement.classList.add('active');
+      document.getElementById(tabId).classList.add('active');
+    }
+
+    function toggleTheme() {
+      const darkMode = document.body.classList.toggle('dark');
+      localStorage.setItem('theme', darkMode ? 'dark' : 'light');
+      document.getElementById('darkToggle').checked = darkMode;
+    }
+
+    function loadTheme() {
+      const theme = localStorage.getItem('theme');
+      const isDark = theme === 'dark';
+      if (isDark) document.body.classList.add('dark');
+      document.getElementById('darkToggle').checked = isDark;
+    }
+
+    function formatResponseText(text) {
+      return text.replace(/<think>(.*?)<\/think>/gi, (_, inner) =>
+        inner.trim() ? `<span class="thinking">[Thinking: ${inner.trim()}]</span>` : ''
+      );
+    }
 
     async function sendMessage() {
       const input = document.getElementById('chatInput');
@@ -267,7 +295,6 @@
       chatHistory.appendChild(msgDiv);
       chatHistory.scrollTop = chatHistory.scrollHeight;
 
-      // Animate dots
       let dotCount = 0;
       const interval = setInterval(() => {
         if (!document.getElementById(id)) return clearInterval(interval);
@@ -286,24 +313,6 @@
         clearInterval(el.dataset.interval);
         el.innerHTML = newHtml;
       }
-    }
-
-    function toggleTheme() {
-      document.body.classList.toggle('dark');
-      localStorage.setItem('theme', document.body.classList.contains('dark') ? 'dark' : 'light');
-    }
-
-    function loadTheme() {
-      const saved = localStorage.getItem('theme');
-      if (saved === 'dark') document.body.classList.add('dark');
-    }
-
-    function switchTab(tabId) {
-      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-
-      document.querySelector(`.tab[onclick*="${tabId}"]`).classList.add('active');
-      document.getElementById(tabId).classList.add('active');
     }
   </script>
 
