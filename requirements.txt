@@ -3,3 +3,4 @@ networkx==3.5
 pyvis==0.3.2
 fastapi
 uvicorn
+requests
