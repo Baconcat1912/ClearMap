@@ -1,26 +1,16 @@
-from flask import Flask, request, render_template_string
-
+from flask import Flask, request, jsonify, render_template
 app = Flask(__name__)
 
 @app.route('/')
 def index():
-    #Serve a simple placeholder page.
-    return render_template_string(
-        """
-        <!doctype html>
-        <html lang=\"en\">
-        <head>
-        <meta charset=\"utf-8\">
-        <title>AI Mind Map</title>
-        </head>
-        <body>
-            <h1>AI Mind Map Generator</h1>    
-            <p>Coming soon...</p>
-        </body>
-        </html>
-        """
-    )
-if __name__ == '__main__'
+    return render_template('index.html')
+
+@app.route('/chat', methods=['POST'])
+def chat():
+    data = request.get_json()
+    user_message = data.get('message', '')
+    ai_response = f"You said: {user_message}"
+    return jsonify({'reply': ai_response})
+
+if __name__ == '__main__':
     app.run(debug=True)
-    #CHANGE THIS WHEN DEPLOYMENT, should be "app.run()"
-    
