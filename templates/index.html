@@ -1,18 +1,92 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>AI Chat</title>
+  <title>ClearMap AI Chat</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f0f2f5;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      height: 100vh;
+    }
+
+    h1 {
+      margin-top: 40px;
+      color: #333;
+    }
+
+    .chat-container {
+      margin-top: 30px;
+      background: white;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+      width: 90%;
+      max-width: 600px;
+    }
+
+    .input-group {
+      display: flex;
+      width: 100%;
+      margin-top: 10px;
+    }
+
+    #chatInput {
+      flex: 1;
+      padding: 12px;
+      font-size: 16px;
+      border: 1px solid #ccc;
+      border-radius: 5px 0 0 5px;
+      outline: none;
+    }
+
+    button {
+      padding: 12px 20px;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      border-radius: 0 5px 5px 0;
+      cursor: pointer;
+      font-size: 16px;
+      transition: background-color 0.2s;
+    }
+
+    button:hover {
+      background-color: #0056b3;
+    }
+
+    #response {
+      margin-top: 20px;
+      background-color: #f8f9fa;
+      padding: 15px;
+      border-radius: 5px;
+      color: #333;
+      min-height: 30px;
+    }
+  </style>
 </head>
 <body>
-  <input id="chatInput" type="text" placeholder="Ask me anything..." style="width: 80%; padding: 10px;">
-  <button onclick="sendMessage()">Send</button>
 
-  <div id="response" style="margin-top: 20px;"></div>
+  <h1>ClearMap</h1>
+
+  <div class="chat-container">
+    <div class="input-group">
+      <input id="chatInput" type="text" placeholder="Ask me anything...">
+      <button onclick="sendMessage()">Send</button>
+    </div>
+    <div id="response"></div>
+  </div>
 
   <script>
     async function sendMessage() {
       const input = document.getElementById('chatInput');
       const message = input.value;
+
+      if (!message.trim()) return;
 
       const response = await fetch('/chat', {
         method: 'POST',
@@ -25,5 +99,6 @@
       input.value = '';
     }
   </script>
+
 </body>
 </html>
