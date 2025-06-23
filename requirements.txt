@@ -24,3 +24,5 @@ aiosqlite
 sqlalchemy
 termcolor
 google-genai
+uvicorn[standard]
+python-dotenv

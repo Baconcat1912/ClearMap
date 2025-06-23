@@ -29,5 +29,5 @@ def chat() -> tuple:
 
 if __name__ == "__main__":
     debug = os.getenv("FLASK_DEBUG", "false").lower() == "true"
-    app.run(debug=debug, host="0.0.0.0")
+    app.run(debug=debug, host="0.0.0.0", port=8000, use_reloader=debug)
 

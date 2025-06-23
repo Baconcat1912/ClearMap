@@ -17,9 +17,10 @@ import aiofiles
 from openai import AsyncOpenAI
 from anthropic import AsyncAnthropic
 from google import genai
-from together import AsyncTogether
 from fuzzywuzzy import fuzz
 from decouple import Config as DecoupleConfig, RepositoryEnv
+from together import Together
+import threading
 
 config = DecoupleConfig(RepositoryEnv('.env'))
 
@@ -104,8 +105,8 @@ class Config:
     ANTHROPIC_API_KEY = config.get('ANTHROPIC_API_KEY')
     DEEPSEEK_API_KEY = config.get('DEEPSEEK_API_KEY')
     GEMINI_API_KEY = config.get('GEMINI_API_KEY')  # Add Gemini API key
-    TOGETHER_API_KEY = config.get('TOGETHER_API_KEY')
-    API_PROVIDER = config.get('API_PROVIDER')  # "OPENAI", "CLAUDE", "DEEPSEEK", "GEMINI", or "TOGETHER"
+    TOGETHER_API_KEY = config.get("TOGETHER_API_KEY")
+    API_PROVIDER = config.get('API_PROVIDER')  # "OPENAI", "CLAUDE", "DEEPSEEK", or "GEMINI"
 
     # Model settings
     CLAUDE_MODEL_STRING = "claude-3-5-haiku-latest"
@@ -133,8 +134,6 @@ class Config:
     DEEPSEEK_REASONER_OUTPUT_PRICE = 2.19 / 1000000  # Reasoner output price (includes CoT)
     GEMINI_INPUT_TOKEN_PRICE = 0.075 / 1000000  # Gemini 2.0 Flash Lite input price estimate
     GEMINI_OUTPUT_TOKEN_PRICE = 0.30 / 1000000  # Gemini 2.0 Flash Lite output price estimate
-    TOGETHER_INPUT_TOKEN_PRICE = 0.0
-    TOGETHER_OUTPUT_TOKEN_PRICE = 0.0
 
 
 class TokenUsageTracker:
@@ -191,11 +190,6 @@ class TokenUsageTracker:
             task_cost = (
                     input_tokens * Config.GEMINI_INPUT_TOKEN_PRICE +
                     output_tokens * Config.GEMINI_OUTPUT_TOKEN_PRICE
-            )
-        elif Config.API_PROVIDER == "TOGETHER":
-            task_cost = (
-                    input_tokens * Config.TOGETHER_INPUT_TOKEN_PRICE +
-                    output_tokens * Config.TOGETHER_OUTPUT_TOKEN_PRICE
             )
         else:  # OPENAI
             task_cost = (
@@ -362,6 +356,9 @@ class DocumentOptimizer:
     def __init__(self):
         self.openai_client = AsyncOpenAI(api_key=Config.OPENAI_API_KEY)
         self.anthropic_client = AsyncAnthropic(api_key=Config.ANTHROPIC_API_KEY)
+        self.together_client = Together(api_key=Config.TOGETHER_API_KEY)
+        self._together_lock = asyncio.Lock()
+        self._together_last_request = 0
         self.deepseek_client = AsyncOpenAI(
             api_key=Config.DEEPSEEK_API_KEY,
             base_url="https://api.deepseek.com"
@@ -371,8 +368,6 @@ class DocumentOptimizer:
             api_key=Config.GEMINI_API_KEY,
             http_options={"api_version": "v1alpha"}
         )
-        self.together_client = AsyncTogether(api_key=Config.TOGETHER_API_KEY)
-        self._together_lock = asyncio.Lock()
         self.token_tracker = TokenUsageTracker()
 
     async def generate_completion(self, prompt: str, max_tokens: int = 5000, request_id: str = None,
@@ -462,27 +457,42 @@ class DocumentOptimizer:
                 )
                 return response_text
             elif Config.API_PROVIDER == "TOGETHER":
-                # Together AI returns the full response at once (no streaming)
+                # 60 requests / min  →  ≥1.1 s between calls
                 async with self._together_lock:
-                    response = await self.together_client.chat.completions.create(
-                        model=Config.TOGETHER_MODEL_STRING,
-                        messages=[{"role": "user", "content": prompt}],
-                        max_tokens=max_tokens,
-                        temperature=0.7,
-                        stream=False,
-                    )
-                response_preview = " ".join(response.choices[0].message.content.split()[:30])
-                self.token_tracker.update(
-                    response.usage.prompt_tokens,
-                    response.usage.completion_tokens,
-                    task or "unknown",
+                    now = time.time()
+                    elapsed = now - self._together_last_request
+                    if elapsed < 1.1:
+                        await asyncio.sleep(1.1 - elapsed)
+                    self._together_last_request = time.time()
+
+                response = self.together_client.chat.completions.create(
+                    model       = Config.TOGETHER_MODEL_STRING,
+                    messages    = [{"role": "user", "content": prompt}],
+                    max_tokens  = max_tokens,
+                    temperature = 0.7,
                 )
+
+                response_text   = response.choices[0].message.content
+                response_preview = " ".join(response_text.split()[:30])
+
+                # --- token / cost bookkeeping -----------------
+                if hasattr(response, "usage"):          # SDK usually returns usage
+                    self.token_tracker.update(
+                        response.usage.prompt_tokens,
+                        response.usage.completion_tokens,
+                        task or "unknown"
+                    )
+                else:                                   # fallback (rough estimate)
+                    approx_in  = len(prompt)        // 4
+                    approx_out = len(response_text) // 4
+                    self.token_tracker.update(approx_in, approx_out, task or "unknown")
+                # ------------------------------------------------
+
                 logger.info(
                     f"\n{colored('✅ API Response', 'green', attrs=['bold'])}\n"
-                    f"Response preview: {colored(response_preview + '...', 'white')}\n"
-                    f"Tokens: {colored(f'Input={response.usage.prompt_tokens}, Output={response.usage.completion_tokens}', 'yellow')}"
+                    f"Response preview: {colored(response_preview + '...', 'white')}"
                 )
-                return response.choices[0].message.content
+                return response_text
             elif Config.API_PROVIDER == "OPENAI":
                 response = await self.openai_client.chat.completions.create(
                     model=Config.OPENAI_COMPLETION_MODEL,
@@ -3034,7 +3044,7 @@ class MindMapGenerator:
             Example format: ["First Distinct Topic", "Second Distinct Topic"]"""
 
             try:
-                response = await self._retry_generate_completion(
+                response = await self.optimizer.generate_completion(
                     consolidated_prompt,
                     max_tokens=1000,
                     request_id=request_id,
@@ -3356,7 +3366,7 @@ class MindMapGenerator:
             Example: ["First Distinct Subtopic", "Second Distinct Subtopic"]"""
 
             try:
-                response = await self._retry_generate_completion(
+                response = await self.optimizer.generate_completion(
                     enhanced_prompt,
                     max_tokens=1000,
                     request_id=request_id,
@@ -3622,7 +3632,7 @@ class MindMapGenerator:
             """
 
             try:
-                response = await self._retry_generate_completion(
+                response = await self.optimizer.generate_completion(
                     enhanced_prompt,
                     max_tokens=1000,
                     request_id=request_id,
@@ -3858,8 +3868,6 @@ class MindMapGenerator:
                     request_id=request_id,
                     task=task
                 )
-                if response is None or not isinstance(response, str) or not response.strip():
-                    raise ValueError("Empty response from API provider")
                 return response
             except Exception as e:
                 retries += 1
