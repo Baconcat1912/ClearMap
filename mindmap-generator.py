@@ -17,6 +17,7 @@ import aiofiles
 from openai import AsyncOpenAI
 from anthropic import AsyncAnthropic
 from google import genai
+from together import AsyncTogether
 from fuzzywuzzy import fuzz
 from decouple import Config as DecoupleConfig, RepositoryEnv
 
@@ -103,7 +104,8 @@ class Config:
     ANTHROPIC_API_KEY = config.get('ANTHROPIC_API_KEY')
     DEEPSEEK_API_KEY = config.get('DEEPSEEK_API_KEY')
     GEMINI_API_KEY = config.get('GEMINI_API_KEY')  # Add Gemini API key
-    API_PROVIDER = config.get('API_PROVIDER')  # "OPENAI", "CLAUDE", "DEEPSEEK", or "GEMINI"
+    TOGETHER_API_KEY = config.get('TOGETHER_API_KEY')
+    API_PROVIDER = config.get('API_PROVIDER')  # "OPENAI", "CLAUDE", "DEEPSEEK", "GEMINI", or "TOGETHER"
 
     # Model settings
     CLAUDE_MODEL_STRING = "claude-3-5-haiku-latest"
@@ -112,10 +114,12 @@ class Config:
     DEEPSEEK_CHAT_MODEL = "deepseek-chat"
     DEEPSEEK_REASONER_MODEL = "deepseek-reasoner"
     GEMINI_MODEL_STRING = "gemini-2.0-flash-lite"  # Add Gemini model string
+    TOGETHER_MODEL_STRING = "deepseek-ai/DeepSeek-R1-Distill-Llama-70B-free"
     CLAUDE_MAX_TOKENS = 200000
     OPENAI_MAX_TOKENS = 8192
     DEEPSEEK_MAX_TOKENS = 8192
     GEMINI_MAX_TOKENS = 8192  # Add Gemini max tokens
+    TOGETHER_MAX_TOKENS = 8192
     TOKEN_BUFFER = 500
 
     # Cost tracking (prices in USD per token)
@@ -129,6 +133,8 @@ class Config:
     DEEPSEEK_REASONER_OUTPUT_PRICE = 2.19 / 1000000  # Reasoner output price (includes CoT)
     GEMINI_INPUT_TOKEN_PRICE = 0.075 / 1000000  # Gemini 2.0 Flash Lite input price estimate
     GEMINI_OUTPUT_TOKEN_PRICE = 0.30 / 1000000  # Gemini 2.0 Flash Lite output price estimate
+    TOGETHER_INPUT_TOKEN_PRICE = 0.0
+    TOGETHER_OUTPUT_TOKEN_PRICE = 0.0
 
 
 class TokenUsageTracker:
@@ -185,6 +191,11 @@ class TokenUsageTracker:
             task_cost = (
                     input_tokens * Config.GEMINI_INPUT_TOKEN_PRICE +
                     output_tokens * Config.GEMINI_OUTPUT_TOKEN_PRICE
+            )
+        elif Config.API_PROVIDER == "TOGETHER":
+            task_cost = (
+                    input_tokens * Config.TOGETHER_INPUT_TOKEN_PRICE +
+                    output_tokens * Config.TOGETHER_OUTPUT_TOKEN_PRICE
             )
         else:  # OPENAI
             task_cost = (
@@ -360,6 +371,8 @@ class DocumentOptimizer:
             api_key=Config.GEMINI_API_KEY,
             http_options={"api_version": "v1alpha"}
         )
+        self.together_client = AsyncTogether(api_key=Config.TOGETHER_API_KEY)
+        self._together_lock = asyncio.Lock()
         self.token_tracker = TokenUsageTracker()
 
     async def generate_completion(self, prompt: str, max_tokens: int = 5000, request_id: str = None,
@@ -448,6 +461,27 @@ class DocumentOptimizer:
                     f"Tokens (estimated): {colored(f'Input≈{estimated_input_tokens}, Output≈{estimated_output_tokens}', 'yellow')}"
                 )
                 return response_text
+            elif Config.API_PROVIDER == "TOGETHER":
+                async with self._together_lock:
+                    response = await self.together_client.chat.completions.create(
+                        model=Config.TOGETHER_MODEL_STRING,
+                        messages=[{"role": "user", "content": prompt}],
+                        max_tokens=max_tokens,
+                        temperature=0.7,
+                    )
+                    await asyncio.sleep(1)
+                response_preview = " ".join(response.choices[0].message.content.split()[:30])
+                self.token_tracker.update(
+                    response.usage.prompt_tokens,
+                    response.usage.completion_tokens,
+                    task or "unknown",
+                )
+                logger.info(
+                    f"\n{colored('✅ API Response', 'green', attrs=['bold'])}\n"
+                    f"Response preview: {colored(response_preview + '...', 'white')}\n"
+                    f"Tokens: {colored(f'Input={response.usage.prompt_tokens}, Output={response.usage.completion_tokens}', 'yellow')}"
+                )
+                return response.choices[0].message.content
             elif Config.API_PROVIDER == "OPENAI":
                 response = await self.openai_client.chat.completions.create(
                     model=Config.OPENAI_COMPLETION_MODEL,
