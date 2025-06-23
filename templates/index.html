@@ -176,6 +176,7 @@
       margin: 10px 0;
     }
   </style>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@2.4.0/dist/purify.min.js"></script>
 </head>
 <body>
 
@@ -253,9 +254,10 @@
     async function sendMessage() {
       const input = document.getElementById('chatInput');
       const message = input.value.trim();
-      if (!message) return;
+      const sanitizedMessage = DOMPurify.sanitize(message, { ALLOWED_TAGS: [] });
+      if (!sanitizedMessage) return;
 
-      appendMessage('user', message);
+      appendMessage('user', sanitizedMessage);
       input.value = '';
 
       const thinkingId = appendThinkingPlaceholder();
@@ -264,11 +266,12 @@
         const response = await fetch('/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message })
+          body: JSON.stringify({ message: sanitizedMessage })
         });
 
         const data = await response.json();
-        replaceThinking(thinkingId, formatResponseText(data.reply));
+        const cleanReply = DOMPurify.sanitize(formatResponseText(data.reply));
+        replaceThinking(thinkingId, cleanReply);
       } catch (error) {
         replaceThinking(thinkingId, 'Oops! Something went wrong.');
       }
@@ -279,7 +282,11 @@
       const msgDiv = document.createElement('div');
       msgDiv.classList.add('message');
       msgDiv.classList.add(sender === 'user' ? 'user-message' : 'ai-message');
-      msgDiv.innerHTML = text;
+      if (sender === 'user') {
+        msgDiv.textContent = text;
+      } else {
+        msgDiv.innerHTML = DOMPurify.sanitize(text);
+      }
       chatHistory.appendChild(msgDiv);
       chatHistory.scrollTop = chatHistory.scrollHeight;
     }
@@ -311,7 +318,7 @@
       const el = document.getElementById(id);
       if (el) {
         clearInterval(el.dataset.interval);
-        el.innerHTML = newHtml;
+        el.innerHTML = DOMPurify.sanitize(newHtml);
       }
     }
   </script>
