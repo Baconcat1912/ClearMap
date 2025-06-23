@@ -462,14 +462,15 @@ class DocumentOptimizer:
                 )
                 return response_text
             elif Config.API_PROVIDER == "TOGETHER":
+                # Together AI returns the full response at once (no streaming)
                 async with self._together_lock:
                     response = await self.together_client.chat.completions.create(
                         model=Config.TOGETHER_MODEL_STRING,
                         messages=[{"role": "user", "content": prompt}],
                         max_tokens=max_tokens,
                         temperature=0.7,
+                        stream=False,
                     )
-                    await asyncio.sleep(1)
                 response_preview = " ".join(response.choices[0].message.content.split()[:30])
                 self.token_tracker.update(
                     response.usage.prompt_tokens,
@@ -3033,7 +3034,7 @@ class MindMapGenerator:
             Example format: ["First Distinct Topic", "Second Distinct Topic"]"""
 
             try:
-                response = await self.optimizer.generate_completion(
+                response = await self._retry_generate_completion(
                     consolidated_prompt,
                     max_tokens=1000,
                     request_id=request_id,
@@ -3355,7 +3356,7 @@ class MindMapGenerator:
             Example: ["First Distinct Subtopic", "Second Distinct Subtopic"]"""
 
             try:
-                response = await self.optimizer.generate_completion(
+                response = await self._retry_generate_completion(
                     enhanced_prompt,
                     max_tokens=1000,
                     request_id=request_id,
@@ -3621,7 +3622,7 @@ class MindMapGenerator:
             """
 
             try:
-                response = await self.optimizer.generate_completion(
+                response = await self._retry_generate_completion(
                     enhanced_prompt,
                     max_tokens=1000,
                     request_id=request_id,
@@ -3857,6 +3858,8 @@ class MindMapGenerator:
                     request_id=request_id,
                     task=task
                 )
+                if response is None or not isinstance(response, str) or not response.strip():
+                    raise ValueError("Empty response from API provider")
                 return response
             except Exception as e:
                 retries += 1
